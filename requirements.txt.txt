@@ -1,8 +1,0 @@
-streamlit
-pandas
-scikit-learn
-joblib
-numpy
-sentence-transformers
-pyarrow
-openpyxl
