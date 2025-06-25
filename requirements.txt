@@ -1,8 +1,6 @@
 streamlit
 pandas
-scikit-learn==1.5.1
-joblib
-numpy
-sentence-transformers
 pyarrow
-openpyxl
+joblib
+scikit-learn==1.5.1
+numpy
