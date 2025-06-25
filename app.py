@@ -1,119 +1,80 @@
-# app.py
+# app.py (Versión Final Optimizada)
 
 import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib # Para cargar tu modelo k-NN
-from pathlib import Path
-# app.py (versión final y mejorada)
+# Ya no necesitamos joblib, scikit-learn ni sentence-transformers aquí,
+# porque todo el trabajo pesado ya está hecho.
 
-import streamlit as st
-import pandas as pd
-import numpy as np
-import joblib
-from pathlib import Path
-
-# --- Configuración de la Página (Título, Ícono, Layout) ---
+# --- Configuración de la Página ---
 st.set_page_config(
     page_title="Ikigai-ML: Tu Orientador Profesional",
     page_icon="🤖",
-    layout="wide"
+    layout="centered"
 )
 
-# --- Carga de Datos y Modelos (con caché para alta velocidad) ---
+# --- Carga de Datos (Archivos ya procesados y ligeros) ---
 @st.cache_data
-def cargar_activos():
+def cargar_datos_finales():
     data_path = Path("./data")
     try:
-        # Cargar el recomendador O*NET
-        knn_model = joblib.load(data_path / "knn_model.pkl")
-        pivot_onet = pd.read_parquet(data_path / "mat_full.parquet")
-        # Cargar un DataFrame simple solo con los títulos de O*NET para mostrar
-        df_onet_titulos = pd.read_parquet(data_path / "onet_titles.parquet") # Necesitarás guardar este archivo
-        
-        # Cargar el puente inteligente
+        # Cargamos el PUENTE INTELIGENTE que tiene todas las coincidencias
         df_puente = pd.read_parquet(data_path / "puente_onet_dane_ia.parquet")
         
-        # Cargar los datos del DANE para el conteo
+        # Cargamos los datos del DANE para el conteo de frecuencia
         df_dane = pd.read_parquet(data_path / "dane_enriquecido_final_2024.parquet")
+        
+        # Cargamos los títulos de O*NET para tener la lista de opciones
+        df_onet_titulos = pd.read_parquet(data_path / "onet_titles.parquet")
+        
     except FileNotFoundError as e:
-        st.error(f"Error al cargar un archivo necesario: {e}. Asegúrate de que todos los archivos estén en la carpeta 'data'.")
-        return None, None, None, None, None
+        st.error(f"Error al cargar un archivo necesario: {e}. Asegúrate de que todos los archivos .parquet estén en la carpeta 'data'.")
+        return None, None, None
 
-    return knn_model, pivot_onet, df_onet_titulos, df_puente, df_dane
+    return df_puente, df_dane, df_onet_titulos
 
 # Cargamos los activos
-knn_model, pivot_onet, df_onet_titulos, df_puente, df_dane = cargar_activos()
+df_puente, df_dane, df_onet_titulos = cargar_datos_finales()
 
-# --- Preparación de la lista de habilidades para el widget ---
-if pivot_onet is not None:
-    # Creamos la lista de habilidades a partir de las columnas de la matriz O*NET
-    lista_completa_habilidades = sorted([col for col in pivot_onet.columns if col not in ['Title', 'Description']])
-else:
-    lista_completa_habilidades = ["Error al cargar habilidades..."]
-
-# Placeholder para tu función de vectorización
-def vector_usuario(user_skills, reference_matrix):
-    # ... Pega aquí tu función vector_usuario REAL ...
-    # Esta función debe tomar la lista de skills y devolver el vector numpy
-    vector = np.zeros((1, len(reference_matrix.columns)))
-    present_skills = [skill for skill in user_skills if skill in reference_matrix.columns]
-    if present_skills:
-        for skill in present_skills:
-            vector[0, reference_matrix.columns.get_loc(skill)] = 1
-        return vector / vector.sum()
-    return vector
-
-
-# --- Interfaz de Usuario de la Aplicación ---
+# --- Interfaz de Usuario ---
 st.title("🤖 Proyecto Ikigai-ML")
 st.header("Tu Orientador Profesional con IA")
-st.write("Descubre qué profesiones se ajustan a tus habilidades y conoce su contexto en el mercado laboral colombiano.")
+st.write("Selecciona una profesión de la lista para ver su perfil y su contexto en el mercado laboral colombiano.")
 
-# --- NUEVO WIDGET DE SELECCIÓN MÚLTIPLE ---
-user_skills_seleccionadas = st.multiselect(
-    "Selecciona tus habilidades de la lista (puedes escribir para buscar):",
-    options=lista_completa_habilidades,
-    placeholder="Elige una o varias habilidades"
-)
+if df_puente is not None:
+    # Creamos la lista de profesiones de O*NET para el desplegable
+    lista_profesiones_onet = sorted(df_puente['Onet_Title'].unique())
 
-# Botón para ejecutar
-if st.button("Encontrar mi Ikigai ✨"):
-    if user_skills_seleccionadas and knn_model is not None:
+    # Widget de selección para que el usuario elija una profesión
+    profesion_seleccionada = st.selectbox(
+        "Elige una profesión para analizar:",
+        options=lista_profesiones_onet,
+        index=None, # Para que no haya nada seleccionado al principio
+        placeholder="Busca y selecciona una profesión..."
+    )
+
+    # Si el usuario selecciona una profesión, mostramos la información
+    if profesion_seleccionada:
         
-        # --- 1. Generar Recomendaciones de O*NET ---
-        st.subheader("Tus Profesiones Recomendadas (Basado en O*NET)")
-
-        u_vec = vector_usuario(user_skills_seleccionadas, pivot_onet)
+        # Buscamos la información en nuestro puente (búsqueda súper rápida)
+        info_completa = df_puente[df_puente['Onet_Title'] == profesion_seleccionada]
         
-        # Usamos el modelo k-NN para encontrar las 5 profesiones más cercanas
-        distances, indices = knn_model.kneighbors(u_vec, n_neighbors=5)
-        
-        # Obtenemos los títulos de las profesiones recomendadas
-        onet_results_titulos = df_onet_titulos.iloc[indices[0]]
+        if not info_completa.empty:
+            # Extraemos la información pre-calculada
+            nombre_dane = info_completa['Dane_Name'].iloc[0]
+            descripcion_dane = info_completa['Dane_Description'].iloc[0]
+            similitud = info_completa['Similarity_Score'].iloc[0]
+            
+            # Buscamos el conteo en los datos del DANE
+            conteo = len(df_dane[df_dane['Nombre Ocupación'] == nombre_dane])
 
-        # --- 2. Enriquecer y Mostrar los Resultados ---
-        for index, row in onet_results_titulos.iterrows():
-            titulo_onet = row['Title']
+            st.markdown(f"### {profesion_seleccionada}")
+            st.info(f"**Ocupación Semánticamente Similar en Colombia:** {nombre_dane}")
+            st.progress(int(similitud * 100), text=f"Puntuación de Similitud: {similitud:.2f}")
             
-            st.markdown(f"#### {titulo_onet}")
+            st.metric(label="Presencia en la Encuesta Nacional DANE 2024", value=f"{conteo:,}".replace(',', '.'))
             
-            # Buscamos la información local en nuestro puente inteligente
-            info_local = df_puente[df_puente['Onet_Title'] == titulo_onet]
-            
-            if not info_local.empty:
-                nombre_dane = info_local['Dane_Name'].iloc[0]
-                descripcion_dane = info_local['Dane_Description'].iloc[0]
-                similitud = info_local['Similarity_Score'].iloc[0]
-                
-                # Buscamos el conteo en los datos del DANE
-                conteo = len(df_dane[df_dane['Nombre Ocupación'] == nombre_dane])
-                
-                with st.expander(f"Ver contexto para '{nombre_dane}' en Colombia 🇨🇴"):
-                    st.info(f"**Similitud de Significado con la profesión de O*NET:** {similitud:.2f} (de 0 a 1)")
-                    st.metric(label="Presencia en Encuesta Nacional 2024", value=f"{conteo:,}".replace(',', '.'))
-                    st.markdown(f"**Descripción del Perfil (DANE):** {descripcion_dane}")
-            else:
-                st.warning("No se encontró una equivalencia semántica directa en los datos de Colombia para esta profesión.")
-    else:
-        st.warning("Por favor, selecciona al menos una habilidad de la lista.")
+            with st.expander("Ver Descripción Completa del Perfil en Colombia (DANE)"):
+                st.write(descripcion_dane)
+else:
+    st.error("La aplicación no pudo cargar los datos necesarios para funcionar.")
